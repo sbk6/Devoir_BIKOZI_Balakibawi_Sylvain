@@ -1,0 +1,292 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Devoir Final - Pipeline d'Ingestion de Donnees IoT en Temps Reel (Serverless) - BIKOZI Balakibawi Sylvain"
+
+Parameters:
+  StudentName:
+    Type: String
+    Default: "sbikozi"
+    Description: "Identifiant etudiant - prefixe pour toutes les ressources"
+
+  ExistingLambdaRoleArn:
+    Type: String
+    Default: ""
+    Description: "Optionnel: ARN d'un role Lambda existant (laisser vide pour en creer un nouveau)"
+
+  ExistingOACId:
+    Type: String
+    Default: ""
+    Description: "Optionnel: ID d'un OAC CloudFront existant (laisser vide pour en creer un nouveau)"
+
+Conditions:
+  ShouldCreateRole: !Equals [!Ref ExistingLambdaRoleArn, ""]
+  ShouldCreateOAC:  !Equals [!Ref ExistingOACId, ""]
+
+Resources:
+
+  # Bucket Data Lake (zone brute IoT)
+  DataLakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${StudentName}-iot-datalake-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Bucket Documentation Technique (prive, accessible uniquement via CloudFront OAC)
+  TechDocBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${StudentName}-tech-doc-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  IoTMetricsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${StudentName}-iot-metrics"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldCreateRole
+    Properties:
+      RoleName: !Sub "${StudentName}-lambda-iot-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: IoTDataAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${DataLakeBucket}/*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt IoTMetricsTable.Arn
+
+
+  IoTIngestionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${StudentName}-iot-ingestion"
+      Runtime: python3.11
+      Handler: index.handler
+      Timeout: 30
+      MemorySize: 128
+      Role: !If
+        - ShouldCreateRole
+        - !GetAtt LambdaExecutionRole.Arn
+        - !Ref ExistingLambdaRoleArn
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref DataLakeBucket
+          DYNAMODB_TABLE: !Ref IoTMetricsTable
+      Code:
+        ZipFile: |
+          import json, boto3, os, uuid
+          from datetime import datetime
+          from decimal import Decimal
+
+          s3 = boto3.client('s3')
+          ddb = boto3.resource('dynamodb')
+
+          def handler(event, context):
+              body = json.loads(event.get('body', '{}'))
+              records = body.get('records', [])
+              if not records:
+                  return {'statusCode': 400,
+                          'body': json.dumps({'error': 'No records in payload'})}
+              temps = [float(r['temperature']) for r in records if 'temperature' in r]
+              avg_temp = round(sum(temps) / len(temps), 2) if temps else 0.0
+              error_count = sum(1 for r in records if r.get('status') == 'ERROR')
+              now = datetime.utcnow()
+              req_id = str(uuid.uuid4())
+              s3_key = f"raw-zone/year={now.year}/month={now.month:02d}/{req_id}.json"
+              s3.put_object(Bucket=os.environ['S3_BUCKET'], Key=s3_key,
+                            Body=json.dumps(body), ContentType='application/json')
+              ddb.Table(os.environ['DYNAMODB_TABLE']).put_item(Item={
+                  'request_id': req_id,
+                  'timestamp': now.isoformat(),
+                  's3_path': s3_key,
+                  'avg_temperature': Decimal(str(avg_temp)),
+                  'error_count': error_count,
+                  'record_count': len(records)
+              })
+              return {
+                  'statusCode': 201,
+                  'headers': {'Content-Type': 'application/json'},
+                  'body': json.dumps({'message': 'Data ingested successfully',
+                                      'request_id': req_id,
+                                      'avg_temperature': avg_temp,
+                                      'error_count': error_count})
+              }
+
+  IoTHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${StudentName}-iot-api"
+      ProtocolType: HTTP
+
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref IoTHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt IoTIngestionFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  IngestRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref IoTHttpApi
+      RouteKey: "POST /ingest"
+      Target: !Sub "integrations/${LambdaIntegration}"
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref IoTHttpApi
+      StageName: "$default"
+      AutoDeploy: true
+
+  ApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref IoTIngestionFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${IoTHttpApi}/*"
+
+
+  IngestionDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${StudentName} - IoT Ingestion CDN"
+        Origins:
+          - Id: ApiGatewayOrigin
+            DomainName: !Sub "${IoTHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: ApiGatewayOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT]
+          CachedMethods: [GET, HEAD]
+          # CachingDisabled - indispensable pour les requetes POST dynamiques
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          # AllViewerExceptHostHeader - transmet les en-tetes au backend
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+
+  DocOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Condition: ShouldCreateOAC
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${StudentName}-doc-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  DocDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${StudentName} - Documentation Technique CDN"
+        DefaultRootObject: index.html
+        Origins:
+          - Id: DocS3Origin
+            DomainName: !GetAtt TechDocBucket.RegionalDomainName
+            OriginAccessControlId: !If [ShouldCreateOAC, !Ref DocOriginAccessControl, !Ref ExistingOACId]
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: DocS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          # CachingOptimized - performance maximale pour contenu statique
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+  TechDocBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TechDocBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOACOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${TechDocBucket}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${DocDistribution}"
+
+
+Outputs:
+  CloudFrontIngestionURL:
+    Description: "URL CloudFront pour l'ingestion IoT (utiliser dans test_client.py)"
+    Value: !Sub "https://${IngestionDistribution.DomainName}"
+    Export:
+      Name: !Sub "${StudentName}-CloudFrontIngestionURL"
+
+  CloudFrontDocURL:
+    Description: "URL CloudFront pour la documentation technique"
+    Value: !Sub "https://${DocDistribution.DomainName}"
+    Export:
+      Name: !Sub "${StudentName}-CloudFrontDocURL"
+
+  ApiGatewayDirectURL:
+    Description: "URL directe API Gateway (sans CloudFront)"
+    Value: !Sub "https://${IoTHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+
+  DataLakeBucketName:
+    Description: "Nom du bucket S3 Data Lake"
+    Value: !Ref DataLakeBucket
+    Export:
+      Name: !Sub "${StudentName}-DataLakeBucket"
+
+  TechDocBucketName:
+    Description: "Nom du bucket S3 Documentation"
+    Value: !Ref TechDocBucket
+    Export:
+      Name: !Sub "${StudentName}-TechDocBucket"
+
+  DynamoDBTableName:
+    Description: "Nom de la table DynamoDB"
+    Value: !Ref IoTMetricsTable
+
+  LambdaFunctionName:
+    Description: "Nom de la fonction Lambda"
+    Value: !Ref IoTIngestionFunction

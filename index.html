@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documentation Technique - Pipeline IoT Serverless | BIKOZI Balakibawi Sylvain</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f4f6f9;
+      color: #2d3748;
+      line-height: 1.7;
+    }
+    header {
+      background: linear-gradient(135deg, #1a202c, #2d3748);
+      color: white;
+      padding: 40px 60px;
+      border-bottom: 4px solid #f6ad55;
+    }
+    header h1 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+    }
+    header p { color: #a0aec0; font-size: 1rem; }
+    .badge {
+      display: inline-block;
+      background: #f6ad55;
+      color: #1a202c;
+      font-weight: bold;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      margin-top: 12px;
+    }
+    main {
+      max-width: 1100px;
+      margin: 40px auto;
+      padding: 0 30px;
+    }
+    section {
+      background: white;
+      border-radius: 10px;
+      padding: 32px 36px;
+      margin-bottom: 28px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+    section h2 {
+      font-size: 1.4rem;
+      color: #2b6cb0;
+      border-left: 4px solid #f6ad55;
+      padding-left: 12px;
+      margin-bottom: 16px;
+    }
+    section h3 {
+      font-size: 1.1rem;
+      color: #2d3748;
+      margin: 20px 0 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    th {
+      background: #2b6cb0;
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 0.9rem;
+    }
+    tr:hover { background: #ebf8ff; }
+    code {
+      background: #edf2f7;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.88rem;
+      color: #c53030;
+    }
+    pre {
+      background: #1a202c;
+      color: #a0aec0;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      margin-top: 12px;
+    }
+    pre code { background: none; color: #68d391; padding: 0; }
+    .flow {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0;
+      font-size: 0.92rem;
+    }
+    .box {
+      background: #ebf8ff;
+      border: 1px solid #bee3f8;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-weight: 600;
+      color: #2b6cb0;
+      white-space: nowrap;
+    }
+    .arrow { font-size: 1.2rem; color: #f6ad55; font-weight: bold; }
+    footer {
+      text-align: center;
+      padding: 30px;
+      color: #718096;
+      font-size: 0.85rem;
+      border-top: 1px solid #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Pipeline d'Ingestion de Donn&eacute;es IoT en Temps R&eacute;el (Serverless)</h1>
+  <p>Introduction &agrave; AWS &mdash; Master 1 IABD &mdash; Responsable : Mofiala Herv&eacute; LOKOSSOU</p>
+  <span class="badge">BIKOZI Balakibawi Sylvain &mdash; 2026</span>
+</header>
+
+<main>
+
+  <!-- CONTEXTE -->
+  <section>
+    <h2>Contexte du Projet</h2>
+    <p>
+      Ce projet met en place une architecture <strong>serverless hautement disponible</strong> pour ingerer
+      en temps r&eacute;el les flux de donn&eacute;es envoy&eacute;s par des milliers de capteurs IoT industriels
+      via des requ&ecirc;tes HTTP POST. En parall&egrave;le, un site de documentation est accessible de mani&egrave;re
+      s&eacute;curis&eacute;e via Amazon CloudFront et un bucket S3 priv&eacute; avec Origin Access Control (OAC).
+    </p>
+    <p style="margin-top:12px;">
+      Toute l'infrastructure est automatis&eacute;e avec <strong>AWS CloudFormation</strong> (&lt; template.yaml &gt;).
+    </p>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section>
+    <h2>Architecture Big Data Serverless</h2>
+
+    <h3>Flux d'Ing&eacute;stion IoT</h3>
+    <div class="flow">
+      <div class="box">Capteur IoT</div>
+      <span class="arrow">&#8594;</span>
+      <div class="box">CloudFront #1</div>
+      <span class="arrow">&#8594;</span>
+      <div class="box">API Gateway HTTP v2</div>
+      <span class="arrow">&#8594;</span>
+      <div class="box">Lambda (Python 3.11)</div>
+      <span class="arrow">&#8594;</span>
+      <div class="box">S3 Data Lake</div>
+      <span class="arrow">+</span>
+      <div class="box">DynamoDB</div>
+    </div>
+
+    <h3>Flux Documentation</h3>
+    <div class="flow">
+      <div class="box">Utilisateur</div>
+      <span class="arrow">&#8594;</span>
+      <div class="box">CloudFront #2</div>
+      <span class="arrow">&#8594; OAC &#8594;</span>
+      <div class="box">S3 Priv&eacute; (tech-doc)</div>
+    </div>
+
+    <h3>Ressources CloudFormation</h3>
+    <table>
+      <thead>
+        <tr><th>Ressource AWS</th><th>Nom Logique</th><th>R&ocirc;le</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>AWS::S3::Bucket</td><td>DataLakeBucket</td><td>Stockage brut IoT partitionn&eacute; (raw-zone/year=.../month=...)</td></tr>
+        <tr><td>AWS::S3::Bucket</td><td>TechDocBucket</td><td>Documentation technique (acc&egrave;s priv&eacute;)</td></tr>
+        <tr><td>AWS::DynamoDB::Table</td><td>IoTMetricsTable</td><td>Feature Store : m&eacute;triques aggr&eacute;g&eacute;es par requ&ecirc;te</td></tr>
+        <tr><td>AWS::IAM::Role</td><td>LambdaExecutionRole</td><td>Permissions S3 + DynamoDB + CloudWatch</td></tr>
+        <tr><td>AWS::Lambda::Function</td><td>IoTIngestionFunction</td><td>Traitement temps r&eacute;el, calcul m&eacute;triques, &eacute;criture S3/DynamoDB</td></tr>
+        <tr><td>AWS::ApiGatewayV2::Api</td><td>IoTHttpApi</td><td>Point d'entr&eacute;e HTTP - route POST /ingest</td></tr>
+        <tr><td>AWS::CloudFront::Distribution</td><td>IngestionDistribution</td><td>CDN mondial devant API Gateway</td></tr>
+        <tr><td>AWS::CloudFront::OriginAccessControl</td><td>DocOriginAccessControl</td><td>S&eacute;curisation acces S3 documentation</td></tr>
+        <tr><td>AWS::CloudFront::Distribution</td><td>DocDistribution</td><td>CDN documentation via OAC</td></tr>
+        <tr><td>AWS::S3::BucketPolicy</td><td>TechDocBucketPolicy</td><td>Autorise uniquement CloudFront OAC sur le bucket doc</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- LAMBDA -->
+  <section>
+    <h2>Traitement Lambda (index.py)</h2>
+    <p>La fonction Lambda <code>index.handler</code> ex&eacute;cute les &eacute;tapes suivantes &agrave; chaque requ&ecirc;te :</p>
+    <ol style="margin:12px 0 0 20px; font-size:0.95rem;">
+      <li>Extraction et parsing du corps JSON de la requ&ecirc;te HTTP</li>
+      <li>Calcul de la temp&eacute;rature moyenne et du nombre d'anomalies (<code>status=ERROR</code>)</li>
+      <li>Sauvegarde du payload brut dans S3 : <code>raw-zone/year=YYYY/month=MM/&lt;uuid&gt;.json</code></li>
+      <li>Enregistrement du rapport dans DynamoDB : <code>request_id</code>, <code>timestamp</code>, <code>s3_path</code>, <code>avg_temperature</code>, <code>error_count</code></li>
+      <li>Retour HTTP <strong>201 Created</strong></li>
+    </ol>
+    <h3>Exemple de payload d'entr&eacute;e</h3>
+    <pre><code>{
+  "records": [
+    { "sensor_id": "sensor-001", "temperature": 23.5, "status": "OK"    },
+    { "sensor_id": "sensor-002", "temperature": 41.2, "status": "ERROR" },
+    { "sensor_id": "sensor-003", "temperature": 19.8, "status": "OK"    },
+    { "sensor_id": "sensor-004", "temperature": 55.0, "status": "ERROR" }
+  ]
+}</code></pre>
+    <h3>R&eacute;ponse attendue (HTTP 201)</h3>
+    <pre><code>{
+  "message": "Donnees ingestion reussie",
+  "request_id": "a1b2c3d4-...",
+  "s3_path": "raw-zone/year=2026/month=06/a1b2c3d4-....json",
+  "avg_temperature": 34.88,
+  "error_count": 2
+}</code></pre>
+  </section>
+
+  <!-- DEPLOIEMENT -->
+  <section>
+    <h2>Commandes de D&eacute;ploiement</h2>
+    <h3>1. D&eacute;ployer le stack CloudFormation</h3>
+    <pre><code>aws cloudformation create-stack \
+  --stack-name devoir-sbikozi \
+  --template-body file://infrastructure/template.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region eu-west-3</code></pre>
+    <h3>2. Uploader la documentation dans S3</h3>
+    <pre><code>aws s3 cp index.html s3://sbikozi-tech-doc-629193321657/ --region eu-west-3</code></pre>
+    <h3>3. Tester le pipeline</h3>
+    <pre><code>pip install requests
+python test_client.py</code></pre>
+  </section>
+
+</main>
+
+<footer>
+  <p>Pipeline d'Ing&eacute;stion IoT Serverless &mdash; BIKOZI Balakibawi Sylvain &mdash; Master 1 IABD &mdash; 2026</p>
+</footer>
+
+</body>
+</html>

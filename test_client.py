@@ -15,7 +15,7 @@ import sys
 # ============================================================
 # CONFIGURATION - Remplacer par votre URL CloudFront (Outputs)
 # ============================================================
-CLOUDFRONT_INGESTION_URL = "https://d2nf7bxfxc6xbb.cloudfront.net"
+CLOUDFRONT_INGESTION_URL = "https://d2xpud3y6q0d90.cloudfront.net"
 
 
 # ============================================================
